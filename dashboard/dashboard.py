@@ -42,7 +42,7 @@ def created_orders_canceled(df):
     return cancellation_by_hour
 
 
-all_df = pd.read_csv("ecomerce.csv")
+all_df = pd.read_csv("../all_data.csv")
 # url = "https://github.com/aesxiety/Proyek-Analisis-Data-Ecomerce-DBS/blob/main/dashboard/all_data.csv"
 # all_df = pd.read_csv(url)
 
