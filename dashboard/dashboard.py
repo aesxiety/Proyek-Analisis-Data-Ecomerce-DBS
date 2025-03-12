@@ -42,7 +42,7 @@ def created_orders_canceled(df):
     return cancellation_by_hour
 
 
-all_df = pd.read_csv("ecomerce.csv")
+all_df = pd.read_csv("dashboard/ecomerce.csv")
 
 datetime_columns = ["order_purchase_timestamp", "order_delivered_customer_date"]
 all_df.sort_values(by="order_purchase_timestamp", inplace=True)
