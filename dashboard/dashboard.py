@@ -8,7 +8,7 @@ from babel.numbers import format_currency
 import pandas as pd
 
 ##Membuat fungsi bantuan untuk mengelola dataframe
-#Menghitung jumlah order dan pendapatan harian
+#Menghitung jumlah order dan pendapatan
 def create_daily_orders_df(df):
     daily_orders_df = df.resample('D', on='order_purchase_timestamp').agg(
         order_count=('order_id', 'nunique'),
@@ -16,6 +16,36 @@ def create_daily_orders_df(df):
     ).reset_index()
     
     return daily_orders_df
+
+def create_monthly_orders_df(df):
+    monthly_orders_df = df.resample('M', on='order_purchase_timestamp').agg(
+        order_count=('order_id', 'nunique'),
+        revenue=('price', 'sum')
+    ).reset_index()
+    
+    return monthly_orders_df
+
+def get_top_bottom_categories(df, top_n=5):
+    sales_byproduct = df.groupby('product_category_name', as_index=False).agg(
+        total_sales=('price', 'sum')
+    ).sort_values(by='total_sales', ascending=False)
+
+    # Mengambil 5 kategori dengan penjualan terbanyak
+    top_categories = sales_byproduct.head(top_n)
+
+    # Mengambil 5 kategori dengan penjualan paling sedikit
+    bottom_categories = sales_byproduct.tail(top_n)
+
+    return top_categories, bottom_categories
+
+def create_bystatus_df(df):
+    bystatus_df = df.groupby("order_status", as_index=False).agg(
+        order_count=("order_id", "nunique")
+     )
+    bystatus_df.rename(
+        columns={"order_status": "orders_status"}, 
+        inplace=True)  
+    return bystatus_df
 
 #Menghitung jumlah order per status per hari
 def create_daily_orders_with_status_columns(df):
@@ -50,7 +80,6 @@ def created_payment_status_df(df):
     return payment_status
 
 
-
 # all_df = pd.read_csv("main_data.csv") #local deploy
 all_df = pd.read_csv("dashboard/main_data.csv")# untuk deploy streamlit cloud via github
 
@@ -61,35 +90,35 @@ all_df.reset_index(inplace=True)
 for column in datetime_columns:
     all_df[column] = pd.to_datetime(all_df[column])
 
-# Filter data
-min_date = all_df["order_purchase_timestamp"].min()
-max_date = all_df["order_purchase_timestamp"].max()
-
 with st.sidebar:
     # Menambahkan logo 
     st.image('https://raw.githubusercontent.com/aesxiety/asset/main/asset/logo.jpg')
     
-    # Mengambil start_date & end_date dari date_input
-    start_date, end_date = st.date_input(
-        label='Rentang Waktu',min_value=min_date,
-        max_value=max_date,
-        value=[min_date, max_date]
-    )
+    # Dropdown untuk memilih tahun
+    selected_year = st.sidebar.selectbox("Pilih Tahun", ["Semua"] + list(range(2016, 2019)))
 
-main_df = all_df[(all_df["order_purchase_timestamp"] >= str(start_date)) & 
-                (all_df["order_purchase_timestamp"] <= str(end_date))]
+
+# Filter berdasarkan tahun yang dipilih
+if selected_year != "Semua":
+    main_df = all_df[all_df['order_purchase_timestamp'].dt.year== int(selected_year)]
+    st.write(f"Data difilter untuk tahun : {selected_year}")
+else:
+    st.write("Data untuk semua tahun")
+    main_df = all_df
+
 
 # Peyiapan dataframe
 daily_orders_df = create_daily_orders_df(main_df)
+monthly_orders_df = create_monthly_orders_df(main_df)
 status_counts_df = create_daily_orders_with_status_columns(main_df)
+bystatus_df = create_bystatus_df(main_df)
 cancellation_by_hour = created_orders_canceled(main_df)
 payment_status_df = created_payment_status_df(main_df)
 
 # Header Dashboard
 st.header('E-comerce Public Dashboard')
-
 # Visualisasi Sumary kegiatan order harian
-st.subheader('Daily Orders')
+st.subheader('Orders Summary')
 col1, col2 = st.columns(2)
 with col1:
     total_orders = daily_orders_df.order_count.sum()
@@ -104,8 +133,8 @@ tab1, tab2 = st.tabs(["Grafik Penjualan", "Grafik Pendapatan"])
  
 with tab1:
     fig, ax = plt.subplots(figsize=(10, 8))
-    sns.lineplot(data=daily_orders_df, x='order_purchase_timestamp', y='order_count', marker='o', color='#72BCD4', ax=ax)
-    ax.set_title('Jumlah Pesanan Harian', fontsize=18)
+    sns.lineplot(data=monthly_orders_df, x='order_purchase_timestamp', y='order_count', marker='o', color='#72BCD4', ax=ax)
+    ax.set_title('Jumlah Pesanan Bulanan', fontsize=18)
     ax.set_xlabel('Tanggal')
     ax.set_ylabel('Jumlah Pesanan')
     ax.grid(True, linestyle='--', alpha=0.5)
@@ -116,23 +145,45 @@ with tab1:
 
 with tab2:
     fig, ax = plt.subplots(figsize=(10, 6))
-    sns.lineplot(data=daily_orders_df, x='order_purchase_timestamp', y='revenue', marker='o', color='#FFA07A', ax=ax)
-    ax.set_title('Pendapatan Harian', fontsize=18)
+    sns.lineplot(data=monthly_orders_df, x='order_purchase_timestamp', y='revenue', marker='o', color='#FFA07A', ax=ax)
+    ax.set_title('Pendapatan bulanan', fontsize=18)
     ax.set_xlabel('Tanggal')
     ax.set_ylabel('Pendapatan (AUD)')
     ax.grid(True, linestyle='--', alpha=0.7)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    st.pyplot(fig)
-    
+    st.pyplot(fig)  
+
+
+# Input jumlah kategori yang ingin ditampilkan
+top_n = st.slider("Pilih jumlah kategori (Top & Bottom)", min_value=3, max_value=10, value=5)
+
+# Dapatkan kategori top & bottom
+top_categories, bottom_categories = get_top_bottom_categories(main_df, top_n)
+
+# Visualisasi Top Kategori 
+st.subheader(f"Top {top_n} Kategori Produk dengan Penjualan Tertinggi")
+fig, ax = plt.subplots(figsize=(8, 5))
+sns.barplot(data=top_categories, x='total_sales', y='product_category_name', palette='Blues_r', ax=ax)
+ax.set_xlabel("Total Sales")
+ax.set_ylabel("Product Category")
+ax.set_title(f"Top {top_n} Kategori Terlaris")
+st.pyplot(fig)
+
+# Visualisasi Bottom Kategori
+st.subheader(f"Bottom {top_n} Kategori Produk dengan Penjualan Terendah")
+fig, ax = plt.subplots(figsize=(8, 5))
+sns.barplot(data=bottom_categories, x='total_sales', y='product_category_name', palette='Reds_r', ax=ax)
+ax.set_xlabel("Total Sales")
+ax.set_ylabel("Product Category")
+ax.set_title(f"Bottom {top_n} Kategori dengan Penjualan Terendah")
+st.pyplot(fig)
 
 # Visualisasi grafik status order
+st.header('Distribusi Status Orders')
 status_columns = status_counts_df.columns[1:]  
 with st.container():
-    st.subheader('Order Status Metrics')
-
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
         with st.container():
             st.markdown("### Delivered")
@@ -153,13 +204,31 @@ with st.container():
             st.markdown("### Processing")
             st.metric("Processing", value=status_counts_df['processing'].sum())
 
+fig, ax = plt.subplots(figsize=(20, 10))
+colors = ["#90CAF9", "#D3D3D3", "#D3D3D3", "#D3D3D3", "#D3D3D3", "#D3D3D3", "#D3D3D3", "#D3D3D3"]
+sns.barplot(
+    x="order_count", 
+    y="orders_status",
+    data=bystatus_df.sort_values(by="order_count", ascending=False),
+    palette=colors,
+    ax=ax
+)
+
+ax.set_title("Distribusi Status Order", loc="center", fontsize=30)
+ax.set_ylabel(None)
+ax.set_xlabel(None)
+ax.tick_params(axis='y', labelsize=20)
+ax.tick_params(axis='x', labelsize=15)
+st.pyplot(fig)
+
+st.subheader("Hubungan Pembatalan pesanan dengan waktu pemesanan")
 fig, ax = plt.subplots(figsize=(10, 6))
 sns.lineplot(data=cancellation_by_hour, x=cancellation_by_hour.index, y='cancellation_rate', marker='o')
 
 hours = [f'{h % 12 or 12}{" AM" if h < 12 else " PM"}' for h in range(24)]
 
 plt.xticks(ticks=range(24), labels=hours, rotation=45)
-ax.set_title('Rasio Pembatalan Pesanan Dalam Sehari (AM/PM)', fontsize=18)
+ax.set_title('Pola Pembatalan Pesanan Dalam Sehari (AM/PM)', fontsize=18)
 ax.set_xlabel('Jam Pemesanan')
 ax.set_ylabel('Rasio Pembatalan (%)')
 ax.grid(True, linestyle='--', alpha=0.6)
